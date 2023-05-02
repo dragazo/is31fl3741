@@ -66,11 +66,11 @@ where
         self.device.set_scaling(scale)
     }
 
-    pub fn configure(i2c: I2C) -> AdafruitRGB13x9<I2C> {
+    pub fn configure(i2c: I2C, address: u8) -> AdafruitRGB13x9<I2C> {
         AdafruitRGB13x9 {
             device: IS31FL3741 {
                 i2c,
-                address: 0x30,
+                address,
                 width: 13 * 9,
                 height: 3,
                 calc_pixel: |x: u8, y: u8| -> (u8, u8) {
