@@ -3,14 +3,14 @@
 /// Preconfigured devices
 pub mod devices;
 
-use embedded_hal::blocking::delay::DelayMs;
-use embedded_hal::blocking::i2c::Write;
+use embedded_hal::delay::DelayNs;
+use embedded_hal::i2c::I2c;
 
 /// A struct to integrate with a new IS31FL3741 powered device.
-pub struct IS31FL3741<I2C> {
+pub struct IS31FL3741<T: I2c> {
     /// The i2c bus that is used to interact with the device. See implementation below for the
     /// trait methods required.
-    pub i2c: I2C,
+    pub i2c: T,
     /// The 7-bit i2c slave address of the device. By default on most devices this is `0x74`.
     pub address: u8,
     /// Width of the LED matrix
@@ -22,12 +22,9 @@ pub struct IS31FL3741<I2C> {
     pub calc_pixel: fn(x: u8, y: u8) -> (u8, u8),
 }
 
-impl<I2C, I2cError> IS31FL3741<I2C>
-where
-    I2C: Write<Error = I2cError>,
-{
+impl<T: I2c> IS31FL3741<T> {
     /// Fill the display with a single brightness. The brightness should range from 0 to 255.
-    pub fn fill(&mut self, brightness: u8) -> Result<(), I2cError> {
+    pub fn fill(&mut self, brightness: u8) -> Result<(), T::Error> {
         self.bank(Page::Pwm1)?;
         let mut buf = [brightness; 0xB5];
         buf[0] = 0x00; // set the initial address
@@ -46,7 +43,7 @@ where
     /// 2. The chip will be put in shutdown mode
     /// 3. The chip will be configured to use the maximum voltage
     /// 4. The chip will be taken out of shutdown mode
-    pub fn setup<DEL: DelayMs<u8>>(&mut self, delay: &mut DEL) -> Result<(), Error<I2cError>> {
+    pub fn setup<DEL: DelayNs>(&mut self, delay: &mut DEL) -> Result<(), Error<T::Error>> {
         self.reset(delay)?;
         self.shutdown(true)?;
         delay.delay_ms(10);
@@ -58,7 +55,7 @@ where
     /// Set the brightness at a specific x,y coordinate. Just like the [fill method](Self::fill)
     /// the brightness should range from 0 to 255. If the coordinate is out of range then the
     /// function will return an error of [InvalidLocation](Error::InvalidLocation).
-    pub fn pixel(&mut self, x: u8, y: u8, brightness: u8) -> Result<(), Error<I2cError>> {
+    pub fn pixel(&mut self, x: u8, y: u8, brightness: u8) -> Result<(), Error<T::Error>> {
         if x > self.width {
             return Err(Error::InvalidLocation(x));
         }
@@ -80,14 +77,14 @@ where
     /// Send a reset message to the slave device. Delay is something that your device's HAL should
     /// provide which allows for the process to sleep for a certain amount of time (in this case 10
     /// MS to perform a reset).
-    pub fn reset<DEL: DelayMs<u8>>(&mut self, delay: &mut DEL) -> Result<(), I2cError> {
+    pub fn reset<DEL: DelayNs>(&mut self, delay: &mut DEL) -> Result<(), T::Error> {
         self.write_register(Page::Config, addresses::RESET_REGISTER, addresses::RESET)?;
         delay.delay_ms(10);
         Ok(())
     }
 
     /// Set the current available to each LED. 0 is none, 255 is the maximum available
-    pub fn set_scaling(&mut self, scale: u8) -> Result<(), I2cError> {
+    pub fn set_scaling(&mut self, scale: u8) -> Result<(), T::Error> {
         self.bank(Page::Scale1)?;
         let mut buf = [scale; 0xB5];
         buf[0] = 0x00; // set the initial address
@@ -98,7 +95,7 @@ where
     }
 
     /// Put the device into software shutdown mode
-    pub fn shutdown(&mut self, yes: bool) -> Result<(), I2cError> {
+    pub fn shutdown(&mut self, yes: bool) -> Result<(), T::Error> {
         self.write_register(
             Page::Config,
             addresses::CONFIG_REGISTER,
@@ -107,23 +104,23 @@ where
         Ok(())
     }
 
-    fn write(&mut self, buf: &[u8]) -> Result<(), I2cError> {
+    fn write(&mut self, buf: &[u8]) -> Result<(), T::Error> {
         self.i2c.write(self.address, buf)
     }
 
-    fn write_register(&mut self, bank: Page, register: u8, value: u8) -> Result<(), I2cError> {
+    fn write_register(&mut self, bank: Page, register: u8, value: u8) -> Result<(), T::Error> {
         self.bank(bank)?;
         self.write(&[register, value])?;
         Ok(())
     }
 
-    fn bank(&mut self, bank: Page) -> Result<(), I2cError> {
+    fn bank(&mut self, bank: Page) -> Result<(), T::Error> {
         self.unlock()?;
         self.write(&[addresses::PAGE_SELECT_REGISTER, bank as u8])?;
         Ok(())
     }
 
-    fn unlock(&mut self) -> Result<(), I2cError> {
+    fn unlock(&mut self) -> Result<(), T::Error> {
         self.i2c.write(
             self.address,
             &[
